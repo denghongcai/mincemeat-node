@@ -1,0 +1,6 @@
+{
+    "name": "mincemeat-node",
+    "dependencies": {
+        "tracer": "*"
+    }
+}
