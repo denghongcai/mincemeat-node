@@ -43,19 +43,10 @@ function Protocol() {
     this.init = function (conn) {
         var self = this;
         if (typeof conn !== "undefined") {
-            this.session = net.createServer(function (sock) {
-                sock.setEncoding("utf8");
-                sock.on('data', function (data) {
-                    sock.pause();
-                    //Process stream data
-                    self.buffer = self.buffer.concat(data);
-                    self.process_data();
-                    sock.resume();
-                });
-            }).listen(DEFAULT_PORT, "127.0.0.1");
+
         }
         else {
-            this.session = new net.Socket();
+            this.session = conn;
         }
         this.terminator = "\n";
     };
@@ -68,11 +59,11 @@ function Protocol() {
             var pdata = pickle.dumps(data);
             command += pdata.length;
             logger.debug(" <- %s", command);
-            this.push(command + "\n" + pdata);
+            this.session.write(command + "\n" + pdata);
         }
         else {
             logger.debug(" <- %s", command);
-            this.push(command + "\n");
+            this.session.write(command + "\n");
         }
     };
 
@@ -185,8 +176,20 @@ Client.prototype = new Protocol();
 Client.prototype.constructor = Client;
 
 Client.prototype.conn = function (server, port) {
+    var self = this;
+    this.terminator = "\n";
     this.client = new net.Socket();
-    this.client.connect(port, server);
+    this.client.connect(port, server, function(){
+        logger.info("Connect to server");
+        self.session = self.client;
+    });
+    this.client.on("data", function(data){
+        self.session.pause();
+        //Process stream data
+        self.buffer = self.buffer.concat(data);
+        self.process_data();
+        self.session.resume();
+    })
 };
 
 Client.prototype.set_mapfn = function (command, mapfn) {
@@ -261,12 +264,7 @@ function Server() {
         var self = this;
         net.createServer(function(sock){
             self.socket_map.push(sock);
-            sock.on("data", function(){
-                var sc = ServerChannel();
-            });
-            sock.on("close", function(){
-                logger.warn("CLIENT CLOSED:" + sock.remoteAddress + " " + sock.remotePort);
-            })
+            var sc = new ServerChannel(conn, this);
         }).listen(port);
     };
 
@@ -280,15 +278,15 @@ function Server() {
     };
 
     this.prototype.__defineSetter__("datasource", function(val){
-        this._datasource = val;
+        this.set_datasource(val);
     });
 
     this.prototype.__defineGetter__("datasource", function(){
-        return this._datasource;
+        this.get_datasource();
     });
 }
 
-function ServerChannel(server) {
+function ServerChannel(conn, server) {
     
     this.init(conn);
     this.server = server;
