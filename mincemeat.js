@@ -24,7 +24,9 @@ var crypto = require("crypto");
 var superJson = require("super-json");
 var iterator = require("iterator");
 var net = require("net");
-var logger = require('tracer').colorConsole();
+var logger = require('tracer').colorConsole({
+    dateformat: "MM:ss.L"
+});
 
 VERSION = "0.1.1";
 
@@ -38,15 +40,16 @@ function Protocol() {
     this.auth = undefined;
     this.mid_command = false;
     this.terminator = "";
+    this.password = "";
     
 
     this.init = function (conn) {
         var self = this;
         if (typeof conn !== "undefined") {
-
+            this.session = conn;
         }
         else {
-            this.session = conn;
+
         }
         this.terminator = "\n";
     };
@@ -93,13 +96,14 @@ function Protocol() {
     this.found_terminator = function (data) {
         var command;
         if (this.auth != "Done") {
+            //logger.debug(" <- %s", data);
             data = (data.split(":", 2));
             command = data[0];
             data = data[1];
             this.process_unauthed_command(command, data);
         }
         else if (this.mid_command === false) {
-            logger.error("-> %s", data);
+            //logger.debug("-> %s", data);
             data = (data.split(":", 2));
             command = data[0];
             var length = data[1];
@@ -133,36 +137,51 @@ function Protocol() {
     };
 
     this.respond_to_challenge = function (command, data) {
-        var hmac = crypto.createHmac("sha1", this.password, data);
-        hmac.update(this.auth);
+        logger.debug(" <- %s", data);
+        var hmac = crypto.createHmac("sha1", this.password);
+        hmac.update(data);
         this.send_command(["auth", hmac.digest("hex")].join(":"));
         this.post_auth_init();
     };
 
     this.verify_auth = function (command, data) {
+        logger.debug(" <- %s", data);
         var hmac = crypto.createHmac("sha1", this.password);
         hmac.update(this.auth);
         if (data == hmac.digest("hex")) {
             this.auth = "Done";
-            logging.info("Authenticated other end");
+            logger.info("Authenticated other end");
         }
         else {
-
+            this.session.close();
         }
     };
+
+    this.process_unauthed_command = function(command, data){
+        var commands = {
+            'challenge': this.respond_to_challenge,
+            'auth': this.verify_auth
+        };
+
+        if(command in commands){
+            commands[command].call(this, command, data);
+        }
+        else{
+            logger.error("Unknown unauthed command received: %s", command);
+        }
+    }
 }
 
 Protocol.prototype.process_command = function (command, data) {
     var commands = {
         'challenge': this.respond_to_challenge,
-        'auth': this.verify_auth
     };
 
     if (command in commands) {
-        commands[command](command, data)
+        commands[command].call(this, command, data)
     }
     else {
-        logger.error("Unknown unauthed command received: %s", command);
+        logger.error("Unknown command received: %s", command);
     }
 };
 
@@ -238,7 +257,7 @@ Client.prototype.process_command = function (command, data) {
     };
 
     if (command in commands) {
-        commands[command](command, data);
+        commands[command].call(this, command, data);
     }
     else {
         Protocol.prototype.process_command.call(this, command, data);
@@ -262,10 +281,12 @@ function Server() {
 
     this.run_server = function (password, port) {
         var self = this;
+        this.password = password;
         net.createServer(function(sock){
             self.socket_map.push(sock);
-            var sc = new ServerChannel(conn, this);
+            var sc = new ServerChannel(sock, this, self.password);
         }).listen(port);
+        logger.info("Server Start!");
     };
 
     this.set_datasource = function (ds) {
@@ -276,21 +297,31 @@ function Server() {
     this.get_datasource = function () {
         return this._datasource;
     };
-
-    this.prototype.__defineSetter__("datasource", function(val){
-        this.set_datasource(val);
-    });
-
-    this.prototype.__defineGetter__("datasource", function(){
-        this.get_datasource();
-    });
 }
 
-function ServerChannel(conn, server) {
+Server.prototype.__defineSetter__("datasource", function(val){
+    this.set_datasource(val);
+});
+
+Server.prototype.__defineGetter__("datasource", function(){
+    this.get_datasource();
+});
+
+function ServerChannel(conn, server, password) {
     
     this.init(conn);
     this.server = server;
+    this.password = password;
     this.start_auth();
+
+    var self = this;
+    this.session.on("data", function(data){
+        self.session.pause();
+        //Process stream data
+        self.buffer = self.buffer.concat(data);
+        self.process_data();
+        self.session.resume();
+    });
 }
 
 ServerChannel.prototype = new Protocol();
@@ -343,7 +374,7 @@ ServerChannel.prototype.post_auth_init = function () {
     if (typeof this.server.collectfn != "undefined") {
         this.send_command('collectfb', superJson.create().stringify(this.server.collectfn));
     }
-    this.start_new_task()
+    //this.start_new_task()
 };
 
 function TaskManager(datasource, server) {
@@ -430,12 +461,12 @@ function TaskManager(datasource, server) {
 
 
 var s = new Server();
-s.run_server();
+s.run_server("123456", 8185);
 
 function run_client() {
     var client = new Client();
     client.password = "123456";
-    client.conn(8185, "127.0.0.1");
+    client.conn("127.0.0.1", 8185);
 }
 
 run_client();
