@@ -19,10 +19,10 @@
  # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  # THE SOFTWARE.
  */
-var pickle = require("./pickle-js");
+var pickle = require("./pickle-js").pickle;
 var crypto = require("crypto");
 var superJson = require("super-json");
-var iterator = require("iterator");
+var iterator = require("iterator").Iterator;
 var net = require("net");
 var logger = require('tracer').colorConsole({
     dateformat: "MM:ss.L"
@@ -59,7 +59,9 @@ function Protocol() {
             command += ":";
         }
         if (data != undefined) {
-            var pdata = pickle.dumps(data);
+            var myJson = superJson.create();
+            var pdata = myJson.stringify(data.toString());
+            logger.debug(" <- %s", pdata);
             command += pdata.length;
             logger.debug(" <- %s", command);
             this.session.write(command + "\n" + pdata);
@@ -75,8 +77,8 @@ function Protocol() {
         if(typeof this.terminator === "number"){
             if(this.buffer.length >= this.terminator){
                 data = this.buffer.slice(0, this.terminator);
-                this.found_terminator(data);
                 this.buffer = this.buffer.slice(this.terminator);
+                this.found_terminator(data);
                 this.process_data();
             }
         }
@@ -86,8 +88,8 @@ function Protocol() {
             }
             else{
                 data = this.buffer.slice(0, this.buffer.indexOf(this.terminator));
-                this.found_terminator(data);
                 this.buffer = this.buffer.slice(this.buffer.indexOf(this.terminator) + 1);
+                this.found_terminator(data);
                 this.process_data();
             }
         }
@@ -111,7 +113,7 @@ function Protocol() {
                 this.process_command(command, length);
             }
             else if (length) {
-                this.set_terminator(parseInt(length));
+                this.terminator = parseInt(length);
                 this.mid_command = command;
             }
             else {
@@ -123,7 +125,9 @@ function Protocol() {
                 logger.error("Recieved pickled data from unauthed source");
                 process.exit();
             }
-            data = pickle.loads(data);
+            var myJson = superJson.create();
+            logger.debug(" <- %s", data);
+            data = myJson.parse(data);
             this.terminator = "\n";
             command = this.mid_command;
             this.mid_command = false;
@@ -174,7 +178,7 @@ function Protocol() {
 
 Protocol.prototype.process_command = function (command, data) {
     var commands = {
-        'challenge': this.respond_to_challenge,
+        'challenge': this.respond_to_challenge
     };
 
     if (command in commands) {
@@ -278,33 +282,26 @@ function Server() {
     this.reducefn = undefined;
     this.collectfn = undefined;
     this.password = undefined;
+    this.taskmanager = undefined;
 
     this.run_server = function (password, port) {
         var self = this;
         this.password = password;
         net.createServer(function(sock){
             self.socket_map.push(sock);
-            var sc = new ServerChannel(sock, this, self.password);
+            var sc = new ServerChannel(sock, self, self.password);
         }).listen(port);
         logger.info("Server Start!");
-    };
-
-    this.set_datasource = function (ds) {
-        this._datasource = ds;
-        this.taskmanager = new TaskManager(this._datasource);
-    };
-
-    this.get_datasource = function () {
-        return this._datasource;
     };
 }
 
 Server.prototype.__defineSetter__("datasource", function(val){
-    this.set_datasource(val);
+    this._datasource = val;
+    this.taskmanager = new TaskManager(this._datasource);
 });
 
 Server.prototype.__defineGetter__("datasource", function(){
-    this.get_datasource();
+    return this._datasource;
 });
 
 function ServerChannel(conn, server, password) {
@@ -352,8 +349,8 @@ ServerChannel.prototype.reducedone = function (command, data) {
 
 ServerChannel.prototype.process_command = function (command, data) {
     var commands = {
-        'mapdone': this.map_done,
-        'reducedone': this.reduce_done
+        'mapdone': this.server.taskmanager.map_done,
+        'reducedone': this.server.taskmanager.reduce_done
     };
 
     if (command in commands) {
@@ -365,16 +362,17 @@ ServerChannel.prototype.process_command = function (command, data) {
 };
 
 ServerChannel.prototype.post_auth_init = function () {
+    var myJson = superJson.create();
     if (typeof this.server.mapfn != "undefined") {
-        this.send_command('mapfn', superJson.create().stringify(this.server.mapfn));
+        this.send_command('mapfn', myJson.stringify(this.server.mapfn));
     }
-    if (typeof this.server.reduce != "undefined") {
-        this.send_command('reducefn', superJson.create().stringify(this.server.reducefn));
+    if (typeof this.server.reducefn != "undefined") {
+        this.send_command('reducefn', myJson.stringify(this.server.reducefn));
     }
     if (typeof this.server.collectfn != "undefined") {
-        this.send_command('collectfb', superJson.create().stringify(this.server.collectfn));
+        this.send_command('collectfb', myJson.stringify(this.server.collectfn));
     }
-    //this.start_new_task()
+    this.start_new_task()
 };
 
 function TaskManager(datasource, server) {
@@ -461,6 +459,11 @@ function TaskManager(datasource, server) {
 
 
 var s = new Server();
+s.mapfn = function(){
+    console.log("hehe");
+};
+s.datasource = "hehe";
+console.log(s.datasource);
 s.run_server("123456", 8185);
 
 function run_client() {
