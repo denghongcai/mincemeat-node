@@ -1,7 +1,7 @@
-#Mincemeat-node: MapReduce on Node.js
+###Mincemeat-node: MapReduce on Node.js
 ---
 
 
-License
+###License
 ---
 MIT
