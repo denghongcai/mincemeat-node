@@ -19,6 +19,9 @@
  # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  # THE SOFTWARE.
  */
+
+'use strict'
+
 var pickle = require("./pickle-js").pickle;
 var crypto = require("crypto");
 var superJson = require("super-json");
@@ -33,9 +36,9 @@ var logger = require('tracer').colorConsole({
 var EventEmitter = require("events").EventEmitter;
 var event = new EventEmitter();
 
-VERSION = "0.1.1";
+var VERSION = "0.1.1";
 
-DEFAULT_PORT = 11235;
+var DEFAULT_PORT = 11235;
 
 
 //Parent Class define
@@ -272,7 +275,7 @@ Client.prototype.call_reducefn = function (command, data) {
 };
 
 Client.prototype.process_command = function (command, data) {
-    commands = {
+    var commands = {
         'mapfn': this.set_mapfn,
         'collectfn': this.set_collectfn,
         'reducefn': this.set_reducefn,
@@ -523,7 +526,7 @@ function TaskManager(datasource, server) {
 var s = new Server();
 
 s.mapfn = function(key, value){
-    i = 0;
+    var i = 0;
     var tmp = [];
     var splitword = value.split(" ");
     while( i < value.split(" ").length){
