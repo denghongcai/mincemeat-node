@@ -45,7 +45,7 @@ function Server() {
     this.handle_close = function(){
         event.emit("task done");
     }
-};
+}
 
 Server.prototype.__defineSetter__("datasource", function(val){
     this._datasource = val;
