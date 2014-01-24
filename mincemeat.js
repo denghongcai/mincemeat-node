@@ -22,11 +22,16 @@
 var pickle = require("./pickle-js").pickle;
 var crypto = require("crypto");
 var superJson = require("super-json");
-var iterator = require("iterator").Iterator;
+var iterator = require("./iterator").Iterator;
+var generator = require("./iterator").Generator;
+var oiterator = require("object-iterator");
 var net = require("net");
 var logger = require('tracer').colorConsole({
     dateformat: "MM:ss.L"
 });
+
+var EventEmitter = require("events").EventEmitter;
+var event = new EventEmitter();
 
 VERSION = "0.1.1";
 
@@ -60,7 +65,7 @@ function Protocol() {
         }
         if (data != undefined) {
             var myJson = superJson.create();
-            var pdata = myJson.stringify(data.toString());
+            var pdata = myJson.stringify(data);
             logger.debug(" <- %s", pdata);
             command += pdata.length;
             logger.debug(" <- %s", command);
@@ -157,8 +162,12 @@ function Protocol() {
             logger.info("Authenticated other end");
         }
         else {
-            this.session.close();
+            this.session.destroy();
         }
+    };
+
+    this.handle_close = function(){
+        this.session.destroy();
     };
 
     this.process_unauthed_command = function(command, data){
@@ -178,7 +187,8 @@ function Protocol() {
 
 Protocol.prototype.process_command = function (command, data) {
     var commands = {
-        'challenge': this.respond_to_challenge
+        'challenge': this.respond_to_challenge,
+        'disconnect': this.handle_close
     };
 
     if (command in commands) {
@@ -230,13 +240,23 @@ Client.prototype.set_reducefn = function (command, reducefn) {
 Client.prototype.call_mapfn = function (command, data) {
     logger.info("Mapping %s", data[0].toString());
     var results = {};
-    var result = this.mapfn(data[0], data[1]);
-    for (var k in result) {
-        if (!(result[k][0] in results)) {
-            results[result[k][0]] = [];
+    var result = generator(this.mapfn, data[0], data[1]);
+    result = result();
+    try {
+        var result_item;
+        while(result_item = result.next()){
+            for (var k in result_item) {
+                if (!(k in results)) {
+                    results[k] = [];
+                }
+                results[k].push(result_item[k]);
+            }
         }
-        results[k].append(result[k][1]);
     }
+    catch (err) {
+
+    }
+
     if (typeof this.collectfn !== "undefined") {
         for (var k in results) {
             results[k] = [this.collectfn(num, results[k])];
@@ -246,7 +266,7 @@ Client.prototype.call_mapfn = function (command, data) {
 };
 
 Client.prototype.call_reducefn = function (command, data) {
-    logger.info("Reducing %s", data[0].toString());
+    logger.info("Reducing %s", data[0]);
     var results = this.reducefn(data[0], data[1]);
     this.send_command('reducedone', [data[0], results]);
 };
@@ -292,12 +312,21 @@ function Server() {
             var sc = new ServerChannel(sock, self, self.password);
         }).listen(port);
         logger.info("Server Start!");
+        event.on("task done", function(){
+            logger.info("Done");
+            console.log(self.taskmanager.results);
+            process.exit(0);
+        })
     };
+
+    this.handle_close = function(){
+        event.emit("task done");
+    }
 }
 
 Server.prototype.__defineSetter__("datasource", function(val){
     this._datasource = val;
-    this.taskmanager = new TaskManager(this._datasource);
+    this.taskmanager = new TaskManager(this._datasource, this);
 });
 
 Server.prototype.__defineGetter__("datasource", function(){
@@ -337,24 +366,26 @@ ServerChannel.prototype.start_new_task = function () {
     this.send_command(data[0], data[1]);
 };
 
-ServerChannel.prototype.mapdone = function (command, data) {
+ServerChannel.prototype.map_done = function (command, data) {
     this.server.taskmanager.map_done(data);
     this.start_new_task();
 };
 
-ServerChannel.prototype.reducedone = function (command, data) {
-    this.server.taskmanager.reduce_done();
+ServerChannel.prototype.reduce_done = function (command, data) {
+    this.server.taskmanager.reduce_done(data);
     this.start_new_task();
 };
 
 ServerChannel.prototype.process_command = function (command, data) {
+    var self = this;
     var commands = {
-        'mapdone': this.server.taskmanager.map_done,
-        'reducedone': this.server.taskmanager.reduce_done
+        'mapdone': self.map_done,
+        'reducedone': self.reduce_done,
+        'disconnect': self.handle_close
     };
 
     if (command in commands) {
-        commands[command](command, data)
+        commands[command].call(self,command, data);
     }
     else {
         Protocol.prototype.process_command.call(this, command, data);
@@ -386,6 +417,15 @@ function TaskManager(datasource, server) {
     this.server = server;
     this.state = this.START;
 
+    this.working_maps = {};
+    this.map_results = {};
+    this.map_iter = undefined;
+    this.reduce_iter = undefined;
+    this.working_reduces = {};
+    this.results = {};
+
+    this.map_key = 0;
+
     this.next_task = function (channel) {
         if (this.state == this.START) {
             this.map_iter = iterator(this.datasource);
@@ -395,26 +435,50 @@ function TaskManager(datasource, server) {
         }
         if (this.state == this.MAPPING) {
             try {
-                var map_key = this.map_iter.next();
-                var map_item = [map_key, this.datasource[map_key]];
+                var map_item = [this.map_key, this.map_iter.next()];
+                logger.debug(" <- %s", this.map_key);
                 this.working_maps[map_item[0]] = map_item[1];
+                logger.debug(" <- %s", this.working_maps);
+                this.map_key++;
                 return ['map', map_item];
             }
             catch (err) {
+                logger.debug(" <- %s", err);
                 if (this.working_maps.length > 0) {
-                    var keys = [];
-                    for (var k in obj) keys.push(k);
-                    return ['map', [key, this.working_maps[Math.ceil(Math.random() * (keys.length - 1))]]];
+                    var key = Math.ceil(Math.random() * (this.working_maps.length - 1));
+                    return ['map', [key, this.working_maps[key]]];
                 }
                 this.state = this.REDUCING;
-                this.reduce_iter = this.map_results.iteritems();
+                this.reduce_iter = oiterator(this.map_results);
                 this.working_reduces = {};
                 this.results = {};
             }
         }
         if (this.state == this.REDUCING) {
             try {
-                var reduce_item = this.reduce_iter.next();
+                var reduce_item_tmp = this.reduce_iter();
+                var reduce_item_array = [];
+                if(reduce_item_tmp.type === "array"){
+                    reduce_item_tmp = this.reduce_iter();
+                    while(reduce_item_tmp.type !== "end-array"){
+                        reduce_item_array.push(reduce_item_tmp.value);
+                        reduce_item_tmp = this.reduce_iter();
+                    }
+                }
+                else if(reduce_item_tmp.type === "end-object"){
+                    throw new Error("StopIteration");
+                }
+                else if(reduce_item_tmp.type === "object"){
+                    this.reduce_iter();
+                    reduce_item_tmp = this.reduce_iter();
+                    while(reduce_item_tmp.type !== "end-array"){
+                        reduce_item_array.push(reduce_item_tmp.value);
+                        reduce_item_tmp = this.reduce_iter();
+                    }
+                }
+                var reduce_item = [];
+                reduce_item[0] = reduce_item_tmp.key;
+                reduce_item[1] = reduce_item_array;
                 this.working_reduces[reduce_item[0]] = reduce_item[1];
                 return ['reduce', reduce_item];
             }
@@ -422,13 +486,13 @@ function TaskManager(datasource, server) {
                 if (this.working_reduces.length > 0) {
                     var keys = [];
                     for (var k in obj) keys.push(k);
-                    return ['map', [key, this.working_reduces[Math.ceil(Math.random() * (keys.length - 1))]]];
+                    return ['reduce', [key, this.working_reduces[Math.ceil(Math.random() * (keys.length - 1))]]];
                 }
                 this.state = this.FINISHED;
             }
         }
         if (this.state == this.FINISHED) {
-            this.server.close();
+            this.server.handle_close();
             return ['disconnect', undefined];
         }
     };
@@ -437,14 +501,12 @@ function TaskManager(datasource, server) {
         if (!(data[0] in this.working_maps)) {
             return;
         }
-
-        for (var k in data[1].toArray()) {
-            if (!(k in this.map_results)) {
-                this.map_results[key] = [];
+        for (var k in data[1][0]) {
+            if (!(data[1][0][k] in this.map_results)) {
+                this.map_results[data[1][0][k]] = [];
             }
-            this.map_results[key].append(data[1].toArray()[k]);
+            this.map_results[data[1][0][k]].push(data[1][1][k]);
         }
-
         delete this.working_maps[data[0]];
     };
 
@@ -459,11 +521,30 @@ function TaskManager(datasource, server) {
 
 
 var s = new Server();
-s.mapfn = function(){
-    console.log("hehe");
+
+s.mapfn = function(key, value){
+    i = 0;
+    var tmp = [];
+    var splitword = value.split(" ");
+    while( i < value.split(" ").length){
+        tmp.push([splitword[i++], 1]);
+    }
+    return tmp;
 };
-s.datasource = "hehe";
-console.log(s.datasource);
+s.reducefn = function(key, value){
+    var total = 0;
+    for(var k in value){
+        total += value[k];
+    }
+    return total;
+};
+s.datasource = ["Humpty Dumpty sat on a wall",
+    "Humpty Dumpty had a great fall",
+    "All the King's horses and all the King's men",
+    "Couldn't put Humpty together again"
+];
+
+
 s.run_server("123456", 8185);
 
 function run_client() {
@@ -473,4 +554,3 @@ function run_client() {
 }
 
 run_client();
-

@@ -1,6 +1,8 @@
 {
-    "name": "mincemeat-node",
-    "dependencies": {
-        "tracer": "*"
-    }
+  "name": "mincemeat-node",
+  "dependencies": {
+    "tracer": "*",
+    "object-iterator": "~0.2.1",
+    "super-json": "*"
+  }
 }
