@@ -1,8 +1,16 @@
 {
-  "name": "mincemeat-node",
-  "dependencies": {
-    "tracer": "*",
-    "object-iterator": "~0.2.1",
-    "super-json": "*"
-  }
+    "author": "Dhc <admin@dhchouse.com>",
+    "name": "mincemeat-node",
+    "version": "0.0.1",
+    "repository": {
+        "url": "https://github.com/denghongcai/mincemeat-node"
+    },
+    "engines": {
+        "node": "~0.10.0"
+    },
+    "dependencies": {
+        "tracer": "*",
+        "object-iterator": "~0.2.1",
+        "super-json": "*"
+    }
 }
