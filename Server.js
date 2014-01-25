@@ -83,6 +83,7 @@ ServerChannel.prototype.start_auth = function () {
 
 ServerChannel.prototype.start_new_task = function () {
     var data = this.server.taskmanager.next_task();
+    logger.debug(" <- %s", data);
     if (data[0] == "undefined") {
         return
     }
@@ -152,7 +153,16 @@ function TaskManager(datasource, server) {
     this.next_task = function (channel) {
         if (this.state == this.START) {
             this.map_iter = iterator(this.datasource);
+
             this.working_maps = {};
+            this.working_maps.length = function() {
+                var count = 0;
+                for(var i in this){
+                    count ++;
+                }
+                return count-1;
+            };
+
             this.map_results = {};
             this.state = this.MAPPING;
         }
@@ -167,13 +177,27 @@ function TaskManager(datasource, server) {
             }
             catch (err) {
                 logger.debug(" <- %s", err);
-                if (this.working_maps.length > 0) {
-                    var key = Math.ceil(Math.random() * (this.working_maps.length - 1));
+                if (this.working_maps.length() > 0) {
+                    var key = "";
+                    for(var k in this.working_maps){
+                        if(typeof this.working_maps[k] === "function")
+                            continue;
+                        key = k;
+                        break;
+                    }
                     return ['map', [key, this.working_maps[key]]];
                 }
                 this.state = this.REDUCING;
                 this.reduce_iter = oiterator(this.map_results);
                 this.working_reduces = {};
+                this.working_reduces.length = function() {
+                    var count = 0;
+                    for(var i in this){
+                        count ++;
+                    }
+                    return count-1;
+                };
+
                 this.results = {};
             }
         }
@@ -206,10 +230,15 @@ function TaskManager(datasource, server) {
                 return ['reduce', reduce_item];
             }
             catch (err) {
-                if (this.working_reduces.length > 0) {
-                    var keys = [];
-                    for (var k in obj) keys.push(k);
-                    return ['reduce', [key, this.working_reduces[Math.ceil(Math.random() * (keys.length - 1))]]];
+                if (this.working_reduces.length() > 0) {
+                    var key = undefined;
+                    for(var k in this.working_reduces){
+                        if(typeof this.working_reduces[k] === "function")
+                            continue;
+                        key = k;
+                        break;
+                    }
+                    return ['reduce', [key, this.working_reduces[key]]];
                 }
                 this.state = this.FINISHED;
             }
@@ -230,6 +259,7 @@ function TaskManager(datasource, server) {
             }
             this.map_results[data[1][0][k]].push(data[1][1][k]);
         }
+        //console.log(this.map_results);
         delete this.working_maps[data[0]];
     };
 

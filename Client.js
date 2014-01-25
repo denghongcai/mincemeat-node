@@ -75,7 +75,6 @@ Client.prototype.call_mapfn = function (command, data) {
     catch (err) {
 
     }
-
     if (typeof this.collectfn !== "undefined") {
         for (var k in results) {
             results[k] = [this.collectfn(num, results[k])];
