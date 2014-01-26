@@ -11,16 +11,12 @@ var superJson = require("super-json");
 var generator = require("./iterator").Generator;
 var net = require("net");
 var logger = require('tracer').colorConsole({
-    dateformat: "MM:ss.L",
-    level: "info"
+    dateformat: "MM:ss.L"
 });
-
-var EventEmitter = require("events").EventEmitter;
-var event = new EventEmitter();
 
 function Client(){
 
-};
+}
 
 Client.prototype = new Protocol();
 

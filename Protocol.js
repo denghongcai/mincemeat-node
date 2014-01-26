@@ -6,15 +6,12 @@
 
 var crypto = require("crypto");
 var superJson = require("super-json");
-var iterator = require("./iterator").Iterator;
-var oiterator = require("object-iterator");
-var net = require("net");
 var logger = require('tracer').colorConsole({
-    dateformat: "MM:ss.L"
+    dateformat: "MM:ss.L",
+    level: "info"
 });
 
 var EventEmitter = require("events").EventEmitter;
-var event = new EventEmitter();
 
 var VERSION = "0.1.1";
 
