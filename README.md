@@ -1,7 +1,7 @@
 ##Mincemeat-node: MapReduce on Node.js
-###Usage
+Usage
 -----------
 Please see example
-###License
+License
 -----------
 MIT
