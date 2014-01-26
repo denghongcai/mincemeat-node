@@ -11,8 +11,6 @@ var logger = require('tracer').colorConsole({
     level: "info"
 });
 
-var EventEmitter = require("events").EventEmitter;
-
 var VERSION = "0.1.1";
 
 var DEFAULT_PORT = 11235;
