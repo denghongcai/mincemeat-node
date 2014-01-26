@@ -1,4 +1,5 @@
-##Mincemeat-node: MapReduce on Node.js
+Mincemeat-node: MapReduce on Node.js
+===========
 Usage
 -----------
 Please see example
