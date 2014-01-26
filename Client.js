@@ -8,12 +8,11 @@
 var Protocol = require("./Protocol");
 
 var superJson = require("super-json");
-var iterator = require("./iterator").Iterator;
 var generator = require("./iterator").Generator;
-var oiterator = require("object-iterator");
 var net = require("net");
 var logger = require('tracer').colorConsole({
-    dateformat: "MM:ss.L"
+    dateformat: "MM:ss.L",
+    level: "info"
 });
 
 var EventEmitter = require("events").EventEmitter;
